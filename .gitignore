@@ -1,0 +1,12 @@
+washing_machine
+*.o
+test_wm
+test/simulation
+.pio/*
+.*/
+build/*
+lib/buzzer/input/*.mid
+tools/midi_generator/input/*.mid
+.gitx.zip
+.clangd
+compile_commands.json
