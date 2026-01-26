@@ -8,9 +8,10 @@ A robust, state-machine based washing machine controller designed for the LGT8F3
 
 ## Key Features
 
--   **State-Machine Architecture**: Robust, deterministic C state machine managing all lifecycle phases (Wash, Rinse, Spin).
--   **Standardized Agitation**: Fixed 5-second intervals with alternating motor directions (CW/CCW) for consistent wash action.
--   **Configurable Timing**: Adjustable "tick" granularity (default 500ms) allows for precise control over cycle duration.
+-   **Modular Parameter Selection**: Multi-stage menu for selecting Program (Normal, Short, Express), Water Level (Low, Med, High), and Power (Normal, Strong).
+-   **High-Precision Agitation**: Decisecond-level control (100ms ticks) with configurable run/stop pulses (e.g., 1.6s run for Normal power).
+-   **Target Water Level**: Intelligent filling logic that stops at the user-specified level (Low, Med, or High).
+-   **Encapsulated State**: OOP-style `App` structure removes global variables, enabling cleaner integration and multiple instances.
 -   **Safety Interlocks**: Strictly enforced hardware constraints (e.g., Motor inhibited during Fill; Inlet inhibited during Drain).
 -   **Real-time Feedback**: Logic-driven buzzer notifications for Start, Completion, and Errors.
 -   **Cross-Platform Core**: The exact same C logic runs on the MCU and the Linux simulator.
@@ -40,7 +41,18 @@ The application interacts with physical components through a Hardware Abstractio
 | `Buttons (A, B, C)` | User Interface inputs. | Keyboard Keys (`a`, `b`, `c`) | Tactile Pushbuttons (Debounced) |
 
 ### Simulation Layer
-In the Linux build, the HAL is implemented to interact with `test/simulation.c`. This file acts as a "Physics Engine," responding to actuator states (e.g., if Drain Pump is ON, decrement water level variable) and feeding sensor data back to the core logic. This enables **closed-loop simulation** without hardware.
+In the Linux build, the HAL is implemented to interact with `test/simulation.c`. This file acts as a "Physics Engine," responding to actuator states (e.g., if Drain Pump is ON, decrement water level variable) and feeding sensor data back to the core logic.
+
+#### UI Simulation (Controls)
+-   **'a' (BTN_A)**: Select/OK / Start / Pause.
+-   **'b' (BTN_B)**: Next item in menu.
+-   **'c' (BTN_C)**: Abort current cycle.
+
+#### Modular Presets
+-   **Programs**: Normal (15m/15m), Short (10m/10m), Express (7m/7m).
+-   **Power Modes**:
+    -   *Normal*: 1.6s run, 3.4s stop (per 5s pulse).
+    -   *Strong*: 4.0s run, 1.0s stop (per 5s pulse).
 
 ## Project Structure
 

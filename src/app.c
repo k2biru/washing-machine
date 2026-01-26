@@ -11,15 +11,29 @@
 
 typedef enum { UI_STARTUP, UI_RUNNING, UI_ABORT, UI_SLEEP } ui_state_t;
 
-static wm_program_t presets[] = {
-    /* Standard: 1 wash, 2 rinse, 3s agitate */
-    {1, 2, true, 3, 20, 20, 3, 0, 30, 15, 2},
-    /* Quick: 1 wash, 1 rinse, 4s agitate */
-    {1, 1, true, 2, 10, 10, 4, 0, 20, 10, 2},
-    /* Heavy: 2 wash, 2 rinse, 5s agitate */
-    {2, 2, true, 5, 30, 30, 5, 0, 40, 20, 2}};
-static const char *preset_names[] = {"Standard", "Quick", "Heavy Duty"};
-static const int num_presets = 3;
+/* Program Parameters */
+static const struct {
+    const char *name;
+    uint16_t wash_min;
+    uint16_t rinse_min;
+    uint8_t rinse_count;
+} programs[] = {{"Normal", 15, 15, 2}, {"Short", 10, 10, 2}, {"Express", 7, 7, 1}};
+static const int num_programs = 3;
+
+/* Water Level Parameters */
+static const struct {
+    const char *name;
+    water_level_t level;
+} levels[] = {{"Low", WATER_LOW}, {"Med", WATER_MED}, {"High", WATER_HIGH}};
+static const int num_levels = 3;
+
+/* Power Parameters */
+static const struct {
+    const char *name;
+    uint16_t run_ms;
+    uint16_t cycle_ms;
+} powers[] = {{"Normal", 1600, 5000}, {"Strong", 4000, 5000}};
+static const int num_powers = 2;
 
 /* Initialize all actuator pins via HAL */
 int wm_actuators_init(void) {
@@ -126,24 +140,21 @@ static bool is_just_pressed(hal_button_t btn) {
 }
 
 // Global App State
-static ui_state_t g_ui_state = UI_STARTUP;
-static int g_current_preset = 0;
-static wm_controller_t g_ctrl;
-static wm_sensors_t g_sensors;
-static wm_actuators_t g_actuators;
-static uint32_t g_last_tick_time = 0;
 
-void app_init(void) {
+void app_init(App *app) {
     hal_init();
-    wm_init(&g_ctrl, &g_sensors, &g_actuators, presets[g_current_preset]);
-    g_ui_state = UI_STARTUP;
-    g_last_tick_time = hal_millis();
+    app->ui_state = UI_STARTUP;
+    app->menu_step = 0;
+    app->sel_program = 0;
+    app->sel_level = 0;
+    app->sel_power = 0;
+    app->last_tick_time = hal_millis();
 
     LOG_PRINTF("\n%s\n", "=== Washing Machine Menu ===");
-    LOG_PRINTF("Preset: %s (Press B for Next, A to START)\n", preset_names[g_current_preset]);
+    LOG_PRINTF("Program: %s (B: Next, A: OK)\n", programs[app->sel_program].name);
 }
 
-void app_loop(void) {
+void app_loop(App *app) {
     uint32_t now = hal_millis();
 
     /* --- Input Handling --- */
@@ -151,39 +162,74 @@ void app_loop(void) {
     bool btnB = is_just_pressed(HAL_BTN_B);
     bool btnC = is_just_pressed(HAL_BTN_C);
 
-    switch (g_ui_state) {
+    switch (app->ui_state) {
     case UI_STARTUP:
         if (btnB) {
-            g_current_preset = (g_current_preset + 1) % num_presets;
-            LOG_PRINTF("Preset: %s (Press B for Next, A to START)\n",
-                       preset_names[g_current_preset]);
+            if (app->menu_step == 0)
+                app->sel_program = (app->sel_program + 1) % num_programs;
+            else if (app->menu_step == 1)
+                app->sel_level = (app->sel_level + 1) % num_levels;
+            else if (app->menu_step == 2)
+                app->sel_power = (app->sel_power + 1) % num_powers;
+
+            if (app->menu_step == 0)
+                LOG_PRINTF("Program: %s\n", programs[app->sel_program].name);
+            else if (app->menu_step == 1)
+                LOG_PRINTF("Water Level: %s\n", levels[app->sel_level].name);
+            else if (app->menu_step == 2)
+                LOG_PRINTF("Power: %s\n", powers[app->sel_power].name);
         }
         if (btnA) {
-            wm_init(&g_ctrl, &g_sensors, &g_actuators, presets[g_current_preset]);
-            wm_start(&g_ctrl);
-            g_ui_state = UI_RUNNING;
-            LOG_PRINTF("\nStarting %s...\n", preset_names[g_current_preset]);
+            app->menu_step++;
+            if (app->menu_step == 1) {
+                LOG_PRINTF("Water Level: %s (B: Next, A: OK)\n", levels[app->sel_level].name);
+            } else if (app->menu_step == 2) {
+                LOG_PRINTF("Power: %s (B: Next, A: OK)\n", powers[app->sel_power].name);
+            } else {
+                /* All selections done, build program and start */
+                wm_program_t prog = {
+                    .wash_count = 1,
+                    .rinse_count = programs[app->sel_program].rinse_count,
+                    .spin_enable = true,
+                    .soap_time_sec = 20, /* Default soap for wash */
+                    .wash_agitate_time_sec = programs[app->sel_program].wash_min * 60,
+                    .rinse_agitate_time_sec = programs[app->sel_program].rinse_min * 60,
+                    .agitate_run_ms = powers[app->sel_power].run_ms,
+                    .agitate_cycle_ms = powers[app->sel_power].cycle_ms,
+                    .target_water_level = levels[app->sel_level].level,
+                    .water_fill_timeout_sec = 600, /* 10 mins */
+                    .drain_timeout_sec = 300,      /* 5 mins */
+                    .ticks_per_second = 10         /* 100ms resolution */
+                };
+
+                wm_init(&app->ctrl, &app->sensors, &app->actuators, prog);
+                wm_start(&app->ctrl);
+                app->ui_state = UI_RUNNING;
+                LOG_PRINTF("\nStarting cycle: %s, %s Level, %s Power...\n",
+                           programs[app->sel_program].name, levels[app->sel_level].name,
+                           powers[app->sel_power].name);
+            }
         }
         break;
 
     case UI_RUNNING:
         if (btnA) {
-            if (g_ctrl.state == WM_PAUSED) {
-                wm_resume(&g_ctrl);
+            if (app->ctrl.state == WM_PAUSED) {
+                wm_resume(&app->ctrl);
                 LOG_PRINTF("\n%s\n", "Resumed.");
             } else {
-                wm_pause(&g_ctrl);
+                wm_pause(&app->ctrl);
                 LOG_PRINTF("\n%s\n", "Paused.");
             }
         }
         if (btnC) {
-            wm_pause(&g_ctrl);
-            g_ui_state = UI_ABORT;
+            wm_pause(&app->ctrl);
+            app->ui_state = UI_ABORT;
             LOG_PRINTF("\n%s\n", "Abort? (A: YES, C: NO/RESUME)");
         }
 
         /* Auto-transition to SLEEP if finished */
-        if (g_ctrl.state == WM_COMPLETE || g_ctrl.state == WM_ERROR) {
+        if (app->ctrl.state == WM_COMPLETE || app->ctrl.state == WM_ERROR) {
             // Provide slow feedback or just wait a bit
             // Since loop runs fast, we use a simple counter or timer?
             // Original code used counter with 50ms delay
@@ -194,7 +240,7 @@ void app_loop(void) {
 
             if (now - hold_timer > 2000) { // 2 seconds hold
                 hold_timer = 0;
-                g_ui_state = UI_SLEEP;
+                app->ui_state = UI_SLEEP;
                 LOG_PRINTF("\n%s\n", "=== CYCLE ENDED ===");
                 LOG_PRINTF("Press A to WAKE UP\n");
             }
@@ -203,37 +249,37 @@ void app_loop(void) {
 
     case UI_ABORT:
         if (btnA) {
-            wm_abort(&g_ctrl);
-            g_ui_state = UI_RUNNING; // Let the state machine finish the drain
+            wm_abort(&app->ctrl);
+            app->ui_state = UI_RUNNING; // Let the state machine finish the drain
             LOG_PRINTF("\n%s\n", "Aborting... Draining Water...");
         }
         if (btnC) {
-            wm_resume(&g_ctrl);
-            g_ui_state = UI_RUNNING;
+            wm_resume(&app->ctrl);
+            app->ui_state = UI_RUNNING;
             LOG_PRINTF("\n%s\n", "Aborted cancelled. Resuming...");
         }
         break;
 
     case UI_SLEEP:
         if (btnA) {
-            g_ui_state = UI_STARTUP;
+            app->ui_state = UI_STARTUP;
+            app->menu_step = 0;
             LOG_PRINTF("\n%s\n", "Waking up...");
-            LOG_PRINTF("Preset: %s (Press B for Next, A to START)\n",
-                       preset_names[g_current_preset]);
+            LOG_PRINTF("Program: %s (B: Next, A: OK)\n", programs[app->sel_program].name);
         }
         break;
     }
 
     /* --- Controller Simulation & Ticking --- */
-    if (g_ui_state == UI_SLEEP) {
+    if (app->ui_state == UI_SLEEP || app->ui_state == UI_STARTUP) {
         // No logic tick, just return
         return;
     }
 
-    /* Run controller at presets[current_preset].ticks_per_second */
-    uint32_t tick_period_ms = 1000 / presets[g_current_preset].ticks_per_second;
-    if (now - g_last_tick_time >= tick_period_ms) {
-        g_last_tick_time = now;
+    /* Run controller at ticks_per_second */
+    uint32_t tick_period_ms = 1000 / app->ctrl.program.ticks_per_second;
+    if (now - app->last_tick_time >= tick_period_ms) {
+        app->last_tick_time = now;
 
         /* READ PHYSICAL SENSORS (Abstracted by HAL) */
         /* Note: In Simulation, these values are injected by simulation.c via hal_sim_set_sensors */
@@ -242,23 +288,23 @@ void app_loop(void) {
         bool drain_check = false;
         hal_sensors_read(&drain_check, &water_raw);
 
-        g_sensors.water_level = (water_level_t)water_raw;
-        g_sensors.drain_check = drain_check;
+        app->sensors.water_level = (water_level_t)water_raw;
+        app->sensors.drain_check = drain_check;
 
         /* Tick Controller */
-        wm_tick(&g_ctrl, &g_sensors, &g_actuators);
-        wm_actuators(&g_actuators);
+        wm_tick(&app->ctrl, &app->sensors, &app->actuators);
+        wm_actuators(&app->actuators);
 
-        if (g_ui_state == UI_RUNNING) {
+        if (app->ui_state == UI_RUNNING) {
             /* Display progress */
-            uint16_t rem = wm_get_time_remaining_sec(&g_ctrl);
+            uint16_t rem = wm_get_time_remaining_sec(&app->ctrl);
             LOG_PRINTF("Phase: %-5s | Status: %-10s | Time Rem: %02d:%02d | Level: %-6s | "
                        "Inlet:%d Soap:%d "
                        "Drain:%d Motor:%s\n",
-                       g_ctrl.is_wash_phase ? "WASH" : "RINSE", wm_state_str(g_ctrl.state),
-                       rem / 60, rem % 60, water_str(g_sensors.water_level),
-                       g_actuators.inlet_valve, g_actuators.soap_pump, g_actuators.drain_pump,
-                       motor_str(g_actuators.motor_dir));
+                       app->ctrl.is_wash_phase ? "WASH" : "RINSE", wm_state_str(app->ctrl.state),
+                       rem / 60, rem % 60, water_str(app->sensors.water_level),
+                       app->actuators.inlet_valve, app->actuators.soap_pump,
+                       app->actuators.drain_pump, motor_str(app->actuators.motor_dir));
         }
     }
 }

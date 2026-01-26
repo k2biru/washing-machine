@@ -77,7 +77,8 @@ int main(void) {
     printf("Controls: 'a' = Start/Pause/OK, 'b' = Next, 'c' = ESC/Abort\n");
 
     // Initialize Application
-    app_init();
+    App app;
+    app_init(&app);
 
     while (1) {
         // 1. Input Handling -> Simulate Buttons
@@ -99,7 +100,7 @@ int main(void) {
         run_physics();
 
         // 3. Run Application Loop
-        app_loop();
+        app_loop(&app);
 
         // 4. Sleep to spare CPU
         usleep(50000); // 50ms

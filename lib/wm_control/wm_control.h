@@ -35,14 +35,15 @@ typedef struct {
     uint8_t rinse_count; /* Number of rinse cycles */
     bool spin_enable;    /* Whether to perform final spin */
 
-    uint16_t soap_time_sec;          /* Duration for soap injection in seconds */
-    uint16_t wash_agitate_time_sec;  /* Total agitation time during WASH (seconds) */
-    uint16_t rinse_agitate_time_sec; /* Total agitation time during RINSE (seconds) */
-    uint8_t agitate_run_sec;         /* Duration the motor is ON in each 5s interval */
-    uint8_t agitate_pause_sec;       /* (Legacy) Previously used for pauses */
-    uint16_t water_fill_timeout_sec; /* Max time allowed to reach HIGH level */
-    uint16_t drain_timeout_sec;      /* Max time allowed to reach EMPTY level */
-    uint8_t ticks_per_second;        /* Tick frequency (e.g., 1 for 1s, 2 for 500ms) */
+    uint16_t soap_time_sec;           /* Duration for soap injection in seconds */
+    uint16_t wash_agitate_time_sec;   /* Total agitation time during WASH (seconds) */
+    uint16_t rinse_agitate_time_sec;  /* Total agitation time during RINSE (seconds) */
+    uint16_t agitate_run_ms;          /* Motor ON duration in milliseconds (e.g. 1600 or 4000) */
+    uint16_t agitate_cycle_ms;        /* Total window for one direction (e.g. 5000) */
+    water_level_t target_water_level; /* Fill until this level */
+    uint16_t water_fill_timeout_sec;  /* Max time allowed to reach target level */
+    uint16_t drain_timeout_sec;       /* Max time allowed to reach EMPTY level */
+    uint8_t ticks_per_second;         /* Tick frequency (e.g., 10 for 100ms) */
 } wm_program_t;
 
 /* ---------- States ---------- */

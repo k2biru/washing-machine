@@ -48,8 +48,9 @@ static void test_init_state(void) {
         .rinse_agitate_time_sec = 4,
         .water_fill_timeout_sec = 10,
         .drain_timeout_sec = 10,
-        .agitate_run_sec = 3,
-        .agitate_pause_sec = 3,
+        .agitate_run_ms = 3000,
+        .agitate_cycle_ms = 5000,
+        .target_water_level = WATER_HIGH,
         .ticks_per_second = 1,
     };
 
@@ -79,8 +80,9 @@ static void test_start_to_fill(void) {
         .rinse_agitate_time_sec = 3,
         .water_fill_timeout_sec = 10,
         .drain_timeout_sec = 10,
-        .agitate_run_sec = 3,
-        .agitate_pause_sec = 3,
+        .agitate_run_ms = 3000,
+        .agitate_cycle_ms = 5000,
+        .target_water_level = WATER_HIGH,
         .ticks_per_second = 1,
     };
 
@@ -119,8 +121,9 @@ static void test_fill_to_soap(void) {
         .rinse_agitate_time_sec = 3,
         .water_fill_timeout_sec = 10,
         .drain_timeout_sec = 10,
-        .agitate_run_sec = 3,
-        .agitate_pause_sec = 3,
+        .agitate_run_ms = 3000,
+        .agitate_cycle_ms = 5000,
+        .target_water_level = WATER_HIGH,
         .ticks_per_second = 1,
     };
 
@@ -148,8 +151,9 @@ static void test_soap_to_agitate(void) {
         .rinse_agitate_time_sec = 3,
         .water_fill_timeout_sec = 10,
         .drain_timeout_sec = 10,
-        .agitate_run_sec = 3,
-        .agitate_pause_sec = 3,
+        .agitate_run_ms = 3000,
+        .agitate_cycle_ms = 5000,
+        .target_water_level = WATER_HIGH,
         .ticks_per_second = 1,
     };
 
@@ -178,7 +182,7 @@ static void test_soap_to_agitate(void) {
 
     /* Advance to end of run_sec (3s -> 6 ticks) */
     /* We already ticked once, so tick 4 more times (reaches state_time=5) */
-    MULTI_TICK(&c, &s, &a, (program.agitate_run_sec * program.ticks_per_second) - 2);
+    MULTI_TICK(&c, &s, &a, (program.agitate_run_ms / 1000 * program.ticks_per_second) - 2);
     assert(a.motor_dir == MOTOR_CW);
 
     /* Next tick -> STOP (within the first 5s interval, reaches state_time=6) */
@@ -207,8 +211,9 @@ static void test_pause_resume(void) {
         .rinse_agitate_time_sec = 3,
         .water_fill_timeout_sec = 10,
         .drain_timeout_sec = 10,
-        .agitate_run_sec = 3,
-        .agitate_pause_sec = 3,
+        .agitate_run_ms = 3000,
+        .agitate_cycle_ms = 5000,
+        .target_water_level = WATER_HIGH,
         .ticks_per_second = 1,
     };
 
@@ -239,8 +244,9 @@ static void test_drain_sensor(void) {
         .wash_count = 1,
         .water_fill_timeout_sec = 10,
         .drain_timeout_sec = 10,
-        .agitate_run_sec = 3,
-        .agitate_pause_sec = 3,
+        .agitate_run_ms = 3000,
+        .agitate_cycle_ms = 5000,
+        .target_water_level = WATER_HIGH,
         .ticks_per_second = 1,
         /* other fields 0/false */
     };
@@ -274,8 +280,9 @@ static void test_drain_timeout(void) {
     wm_program_t program = {
         .water_fill_timeout_sec = 10,
         .drain_timeout_sec = 5,
-        .agitate_run_sec = 3,
-        .agitate_pause_sec = 3,
+        .agitate_run_ms = 3000,
+        .agitate_cycle_ms = 5000,
+        .target_water_level = WATER_HIGH,
         .ticks_per_second = 1,
     };
 
@@ -340,8 +347,9 @@ static void test_safety_mechanisms(void) {
     wm_program_t program = {
         .water_fill_timeout_sec = 10,
         .drain_timeout_sec = 10,
-        .agitate_run_sec = 3,
-        .agitate_pause_sec = 3,
+        .agitate_run_ms = 3000,
+        .agitate_cycle_ms = 5000,
+        .target_water_level = WATER_HIGH,
         .ticks_per_second = 1,
     };
 
@@ -404,8 +412,9 @@ static void test_full_standard_cycle(void) {
         .rinse_agitate_time_sec = 2,
         .water_fill_timeout_sec = 10,
         .drain_timeout_sec = 10,
-        .agitate_run_sec = 2,
-        .agitate_pause_sec = 2,
+        .agitate_run_ms = 2000,
+        .agitate_cycle_ms = 4000,
+        .target_water_level = WATER_HIGH,
         .ticks_per_second = 10, // Fast simulation
     };
 
@@ -486,7 +495,11 @@ static void test_spin_logic(void) {
     wm_controller_t c;
     wm_sensors_t s;
     wm_actuators_t a;
-    wm_program_t program = {.spin_enable = true, .ticks_per_second = 1};
+    wm_program_t program = {.spin_enable = true,
+                            .ticks_per_second = 1,
+                            .agitate_cycle_ms = 5000,
+                            .water_fill_timeout_sec = 1,
+                            .drain_timeout_sec = 1};
 
     wm_init(&c, &s, &a, program);
 

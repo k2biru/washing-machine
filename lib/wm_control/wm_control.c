@@ -172,8 +172,8 @@ void wm_tick(wm_controller_t *c, wm_sensors_t *s, wm_actuators_t *a) {
     case WM_FILL:
         a->inlet_valve = true;
 
-        /* Exit FILL state once high water level is achieved */
-        if (s->water_level == WATER_HIGH) {
+        /* Exit FILL state once target water level is achieved */
+        if (s->water_level >= c->program.target_water_level) {
             c->state = c->is_wash_phase ? WM_SOAP : WM_AGITATE;
             c->state_time = 0;
         } else if (c->state_time >=
@@ -195,23 +195,25 @@ void wm_tick(wm_controller_t *c, wm_sensors_t *s, wm_actuators_t *a) {
 
     case WM_AGITATE: {
         /*
-         * Agitation Logic (Standard 5s Cycle):
-         * Motor turns ON at the start of every 5-second window.
+         * Agitation Logic (Configurable Window):
+         * Motor turns ON at the start of every half-cycle (agitate_cycle_ms).
          * The motor stays ON for 'run_ticks' and then STOPS.
-         * Every 5 seconds, the direction alternates: 0-5s (CW), 5-10s (CCW).
+         * The full cycle is 2 * agitate_cycle_ms: First half (CW), Second half (CCW).
          */
-        uint32_t run_ticks = (uint32_t)c->program.agitate_run_sec * c->program.ticks_per_second;
-        /* Calculate position within a 10-second full cycle (CW + CCW halves) */
-        uint32_t cycle_time = c->state_time % (10 * c->program.ticks_per_second);
+        uint32_t run_ticks =
+            (uint32_t)c->program.agitate_run_ms * c->program.ticks_per_second / 1000;
+        uint32_t half_cycle_ticks =
+            (uint32_t)c->program.agitate_cycle_ms * c->program.ticks_per_second / 1000;
+        uint32_t full_cycle_ticks = 2 * half_cycle_ticks;
 
-        if (cycle_time < (5 * (uint32_t)c->program.ticks_per_second)) {
+        uint32_t cycle_time = c->state_time % full_cycle_ticks;
+
+        if (cycle_time < half_cycle_ticks) {
             /* First half cycle: Clockwise rotation */
             a->motor_dir = (cycle_time < run_ticks) ? MOTOR_CW : MOTOR_STOP;
         } else {
             /* Second half cycle: Counter-clockwise rotation */
-            a->motor_dir = (cycle_time - (5 * (uint32_t)c->program.ticks_per_second) < run_ticks)
-                               ? MOTOR_CCW
-                               : MOTOR_STOP;
+            a->motor_dir = (cycle_time - half_cycle_ticks < run_ticks) ? MOTOR_CCW : MOTOR_STOP;
         }
 
         /* Determine total agitation time based on whether we are Washing or Rinsing */
