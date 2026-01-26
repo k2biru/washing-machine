@@ -2,9 +2,10 @@
 #include "utils.h"
 #include <Arduino.h>
 
+/* --- Main Entry Point for MCU --- */
 void setup() {
-    /* Initialize hardware once */
-    wm_actuators_init();
+    /* Initialize App (HAL + Logic) */
+    app_init();
 
     Serial.begin(115200);
     while (!Serial) {
@@ -14,11 +15,6 @@ void setup() {
 }
 
 void loop() {
-    LOG_PRINTF("Starting Wash Program...\n");
-
-    /* Run the wash program logic */
-    wm_program_ex();
-
-    LOG_PRINTF("Program Cycle Finished. Cooling down...\n");
-    MS_DELAY(5000); /* Wait between cycles */
+    /* Run App Logic Loop */
+    app_loop();
 }

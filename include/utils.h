@@ -41,6 +41,7 @@ static void SerialPrintf(const char *fmt, ...) {
 
 #else
 // --- PC / x86 logic ---
+#include <stdio.h>
 #define LOG_PRINTF(fmt, ...) printf(fmt, ##__VA_ARGS__)
 
 #ifdef _WIN32

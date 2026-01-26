@@ -2,12 +2,53 @@
 
 A robust, state-machine based washing machine controller designed for the LGT8F328P (Arduino-compatible) microcontroller. This project features a modular design, separating the core logic from hardware abstraction and providing a standalone C simulation for local development.
 
+### Project Context
+> [!NOTE]
+> **Vibe Coding Demonstration**: This repository serves as a practical demonstration of "Vibe Coding" principles applied to C-based MCU development. It showcases the capability to write, simulate, and verify embedded firmware entirely on a host machine (Unit Tests & PC Simulation) before deploying to hardware, emphasizing rapid iteration and vibe-based flow states.
+
+## Key Features
+
+-   **State-Machine Architecture**: Robust, deterministic C state machine managing all lifecycle phases (Wash, Rinse, Spin).
+-   **Standardized Agitation**: Fixed 5-second intervals with alternating motor directions (CW/CCW) for consistent wash action.
+-   **Configurable Timing**: Adjustable "tick" granularity (default 500ms) allows for precise control over cycle duration.
+-   **Safety Interlocks**: Strictly enforced hardware constraints (e.g., Motor inhibited during Fill; Inlet inhibited during Drain).
+-   **Real-time Feedback**: Logic-driven buzzer notifications for Start, Completion, and Errors.
+-   **Cross-Platform Core**: The exact same C logic runs on the MCU and the Linux simulator.
+
+## System Architecture
+
+The system is designed with a strict separation of concerns, ensuring portability and testability.
+
+### Hardware Interface (HAL)
+The application interacts with physical components through a Hardware Abstraction Layer (`hal.h`). This allows the logic to remain oblivious to whether it is controlling 12V relays or a terminal simulation.
+
+#### Actuators (Outputs)
+| Actuator ID | Description | Sim / Linux Equivalent | MCU / Hardware Equivalent |
+| :--- | :--- | :--- | :--- |
+| `HAL_ACT_MOTOR_POWER` | Controls main motor power relay. | Console Log & State Variable | Relay Pin (Active Low/High Configurable) |
+| `HAL_ACT_MOTOR_DIR` | Controls motor direction (CW/CCW). | Console Display (`CW`/`CCW`/`STOP`) | H-Bridge or Direction Relay |
+| `HAL_ACT_INLET` | Water inlet valve solenoid. | Increases `sim_water_level` | Solenoid Valve Pin |
+| `HAL_ACT_DRAIN` | Water drain pump. | Decreases `sim_water_level` | Pump Relay Pin |
+| `HAL_ACT_SOAP` | Soap dispenser pump/actuator. | Console Log | Peristaltic Pump / Solenoid |
+| `HAL_BUZZER` | Piezo buzzer for status tones. | MIDI/Console Output | PWM / Tone Pin |
+
+#### Sensors (Inputs)
+| Sensor ID | Description | Sim / Linux Equivalent | MCU / Hardware Equivalent |
+| :--- | :--- | :--- | :--- |
+| `Water Level` | Analog/Digital level sensor. | `key_up`/`key_down` (Simulated physics) | Pressure Switch / Float Sensor |
+| `Drain Check` | Safety sensor detecting water presence. | Derived from `water_level > 0` | Continuity / Flow Sensor |
+| `Buttons (A, B, C)` | User Interface inputs. | Keyboard Keys (`a`, `b`, `c`) | Tactile Pushbuttons (Debounced) |
+
+### Simulation Layer
+In the Linux build, the HAL is implemented to interact with `test/simulation.c`. This file acts as a "Physics Engine," responding to actuator states (e.g., if Drain Pump is ON, decrement water level variable) and feeding sensor data back to the core logic. This enables **closed-loop simulation** without hardware.
+
 ## Project Structure
 
 - `lib/wm_control/`: Core washing machine logic (ANSI C).
+- `lib/buzzer/`: Buzzer music player and tunes.
 - `src/`: MCU firmware logic.
     - `main.cpp`: Entry point (Arduino setup/loop).
-    - `app.cpp`: Application logic and hardware abstraction.
+    - `app.c`: Application logic and hardware abstraction (C99).
 - `test/`:
     - `test_wm_control.c`: Unit tests for the core state machine.
     - `simulation.c`: Standalone PC simulation of the wash cycle.
@@ -16,26 +57,45 @@ A robust, state-machine based washing machine controller designed for the LGT8F3
 ## Getting Started
 
 ### Prerequisites
-
-- GCC (for local simulation and tests)
-- [PlatformIO Core](https://docs.platformio.org/en/latest/core/index.html) (for MCU build)
+To run the local simulation and tests, ensure your host environment (Linux/WSL) has the following installed:
+*   **Build System**: `make`
+*   **Compiler**: `gcc` (GNU Compiler Collection)
+*   **Audio**: `aplay` (Optional, for Linux sound tests)
 
 ### Local Development (PC)
 
 Use the provided `Makefile` to run tests and simulations on your machine:
 
 ```bash
+# Clean build artifacts
+make clean
+
 # Run unit tests
 make test
 
 # Run full wash cycle simulation
 make run-wm-simulation
-
-# Clean build artifacts
-make clean
 ```
 
-### Microcontroller (LGT8F328P)
+## Unit Test Suite
+The project includes a comprehensive suite of unit tests (`test/test_wm_control.c`) to verify the state machine logic under various conditions.
+
+| Test Name | Description | Expected Outcome |
+| :--- | :--- | :--- |
+| `test_init_state` | Verifies initial values of the controller struct. | State is `WM_IDLE`, all counters 0. |
+| `test_start_to_fill` | Checks transition from Start to Fill. | `WM_START` -> `WM_FILL`, `inlet_valve` ON. |
+| `test_fill_to_soap` | Checks transition from Fill to Soap injection. | Sensor HIGH triggers transition to `WM_SOAP`. |
+| `test_soap_to_agitate` | Verifies Soap timer and transition to Agitate. | After time elapses, state becomes `WM_AGITATE`. |
+| `test_pause_resume` | Tests Pause/Resume functionality. | State entering `WM_PAUSED` and restoring `prev_state`. |
+| `test_drain_sensor` | Ensures logic waits for drain sensor. | State remains `WM_DRAIN` until sensor reports empty. |
+| `test_drain_timeout` | Simulator timeout condition for drain. | Triggers `WM_ERROR` (TIMEOUT_DRAIN). |
+| `test_invalid_program` | Tests config validation. | Invalid params trigger `WM_ERR_INVALID_PROGRAM`. |
+| `test_complete_buzzer` | Verifies completion behavior. | `WM_COMPLETE` state triggers `BUZZER_FINISH`. |
+| `test_safety_mechanisms` | Checks critical safety interlocks. | Motor forced STOP during FILL; Inlet forced OFF during DRAIN. |
+| `test_full_standard_cycle` | Simulates a complete Wash-Rinse-Spin cycle. | Controller navigates all states sequentially to `WM_COMPLETE`. |
+| `test_spin_logic` | Verifies specific behavior in Spin state. | Motor spins CW/CCW, Drain Pump is OFF (gravity drain assumption or model specific). |
+
+## Microcontroller (LGT8F328P)
 
 The project is configured for the LGT8F328P board using PlatformIO.
 
@@ -45,14 +105,4 @@ make pio-build
 
 # Upload to board
 make pio-upload
-
-# Open serial monitor
-make pio-monitor
 ```
-
-## Features
-
-- **Standardized Agitation**: Fixed 5-second intervals with alternating directions (CW/CCW).
-- **Configurable Tick Rate**: Adjustable timing granularity (currently 500ms).
-- **Safety Interlocks**: Robust actuator enforcement to prevent illegal states (e.g., motor running during fill).
-- **Relay HAL**: Designed for active-low relay modules.

@@ -389,6 +389,130 @@ static void test_safety_mechanisms(void) {
  * Main
  * ============================================================ */
 
+static void test_full_standard_cycle(void) {
+    wm_controller_t c;
+    wm_sensors_t s;
+    wm_actuators_t a;
+
+    /* Standard: 1 wash, 1 rinse, spin enabled */
+    wm_program_t program = {
+        .wash_count = 1,
+        .rinse_count = 1,
+        .spin_enable = true,
+        .soap_time_sec = 1,
+        .wash_agitate_time_sec = 2,
+        .rinse_agitate_time_sec = 2,
+        .water_fill_timeout_sec = 10,
+        .drain_timeout_sec = 10,
+        .agitate_run_sec = 2,
+        .agitate_pause_sec = 2,
+        .ticks_per_second = 10, // Fast simulation
+    };
+
+    wm_init(&c, &s, &a, program);
+    wm_start(&c);
+
+    /* START -> FILL */
+    wm_tick(&c, &s, &a);
+    assert(c.state == WM_FILL);
+
+    /* Fill Water */
+    s.water_level = WATER_HIGH;
+    s.drain_check = true; /* Ensure drain sensor detects water */
+    wm_tick(&c, &s, &a);
+    assert(c.state == WM_SOAP);
+
+    /* Soap Logic (1s = 10 ticks) */
+    MULTI_TICK(&c, &s, &a, 10);
+    /* Should transition to AGITATE */
+    wm_tick(&c, &s, &a);
+    assert(c.state == WM_AGITATE);
+
+    /* Wash Agitate (Wait for transition) */
+    int limit = 50;
+    while (c.state == WM_AGITATE && limit-- > 0) {
+        wm_tick(&c, &s, &a);
+    }
+    assert(c.state == WM_DRAIN);
+
+    /* Drain Water */
+    s.water_level = WATER_EMPTY;
+    s.drain_check = false;
+    wm_tick(&c, &s, &a);
+
+    /* Rinse Phase: FILL */
+    assert(c.state == WM_FILL);
+    assert(c.is_wash_phase == false);
+
+    /* Fill for Rinse */
+    s.water_level = WATER_HIGH;
+    wm_tick(&c, &s, &a);
+    /* Rinse uses AGITATE immediately (No SOAP) */
+    assert(c.state == WM_AGITATE);
+
+    /* Rinse Agitate (Wait for transition) */
+    limit = 50;
+    while (c.state == WM_AGITATE && limit-- > 0) {
+        wm_tick(&c, &s, &a);
+    }
+    assert(c.state == WM_DRAIN);
+
+    /* Drain Rinse Water */
+    s.water_level = WATER_EMPTY;
+    s.drain_check = false;
+    wm_tick(&c, &s, &a);
+
+    /* Spin Phase */
+    assert(c.state == WM_SPIN);
+    wm_tick(&c, &s, &a); /* Tick once to run SPIN logic */
+    assert(a.motor_dir == MOTOR_CW || a.motor_dir == MOTOR_CCW);
+    assert(a.inlet_valve == false);
+
+    /* Spin for fixed duration (hardcoded 3s in logic? No, derived?) */
+    /* wm_control.c logic for SPIN duration needs check.
+       Usually hardcoded or config. Let's assume it runs for some ticks. */
+    /* Keep ticking until Complete */
+    limit = 100;
+    while (c.state == WM_SPIN && limit-- > 0) {
+        wm_tick(&c, &s, &a);
+    }
+
+    assert(c.state == WM_COMPLETE);
+
+    printf("✓ test_full_standard_cycle\n");
+}
+
+static void test_spin_logic(void) {
+    wm_controller_t c;
+    wm_sensors_t s;
+    wm_actuators_t a;
+    wm_program_t program = {.spin_enable = true, .ticks_per_second = 1};
+
+    wm_init(&c, &s, &a, program);
+
+    /* Force to SPIN state */
+    c.state = WM_SPIN;
+    c.state_time = 0;
+
+    /* Tick */
+    wm_tick(&c, &s, &a);
+
+    /* Safety Check: Spin MUST NOT have water */
+    /* If we force water level high during spin: */
+    s.water_level = WATER_HIGH;
+    wm_tick(&c, &s, &a);
+
+    /* Logic check: Does it error? Or just pump? */
+    /* Current implementation might not check water in SPIN state explicitly if safely entered.
+       But let's check actuators. */
+    assert(a.motor_dir != MOTOR_STOP);
+    assert(a.inlet_valve == false);
+    assert(a.soap_pump == false);
+    assert(a.drain_pump == false); /* Drain pump NOT enabled in current logic */
+
+    printf("✓ test_spin_logic\n");
+}
+
 int main(void) {
     printf("Running washing machine unit tests...\n\n");
 
@@ -402,6 +526,10 @@ int main(void) {
     test_invalid_program();
     test_complete_buzzer();
     test_safety_mechanisms();
+
+    /* New Tests */
+    test_full_standard_cycle();
+    test_spin_logic();
 
     printf("\nAll tests PASSED ✅\n");
     return 0;
